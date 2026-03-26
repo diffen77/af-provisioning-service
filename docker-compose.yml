@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  af-provisioning-service:
+    image: af-provisioning-service:latest
+    container_name: af-provisioning-service
+    ports:
+      - "4500:4500"
+    environment:
+      NODE_ENV: production
+      PORT: 4500
+      DOCKER_HOST: unix:///var/run/docker.sock
+      CADDY_ADMIN_URL: http://localhost:2019
+      DATABASE_ADMIN_URL: ${DATABASE_ADMIN_URL}
+      DATABASE_ADMIN_USER: ${DATABASE_ADMIN_USER}
+      DATABASE_ADMIN_PASSWORD: ${DATABASE_ADMIN_PASSWORD}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/diffen/docker-compose-generated:/home/diffen/docker-compose-generated
+      - af-provisioning-logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - harrydabbqse_default
+    depends_on:
+      - caddy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:4500"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  caddy:
+    image: caddy:latest
+    container_name: caddy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "2019:2019"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      ACME_AGREE: "true"
+    restart: unless-stopped
+    networks:
+      - harrydabbqse_default
+
+volumes:
+  af-provisioning-logs:
+  caddy-data:
+  caddy-config:
+
+networks:
+  harrydabbqse_default:
+    external: true

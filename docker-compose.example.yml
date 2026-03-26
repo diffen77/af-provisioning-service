@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  af-provisioning-service:
+    image: ghcr.io/diffen77/af-provisioning-service:latest
+    container_name: af-provisioning-service
+    ports:
+      - "192.168.99.4:4500:4500"
+    environment:
+      NODE_ENV: production
+      PORT: 4500
+      DOCKER_HOST: unix:///var/run/docker.sock
+      CADDY_ADMIN_URL: http://localhost:2019
+      DATABASE_ADMIN_URL: postgresql://postgres:${DB_ADMIN_PASSWORD}@localhost:5432/postgres
+      DATABASE_ADMIN_USER: postgres
+      DATABASE_ADMIN_PASSWORD: ${DB_ADMIN_PASSWORD}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/diffen/docker-compose-generated:/home/diffen/docker-compose-generated
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - harrydabbqse_default
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:4500"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+networks:
+  harrydabbqse_default:
+    external: true
