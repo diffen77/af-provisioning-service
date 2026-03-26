@@ -1,0 +1,96 @@
+name: Build & Deploy af-provisioning-service
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  DEPLOY_HOST: 192.168.99.4
+  DEPLOY_USER: diffen
+  DEPLOY_PORT: 4500
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to 192.168.99.4
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ env.DEPLOY_HOST }}
+          username: ${{ env.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            echo "[*] Pulling latest image..."
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            
+            echo "[*] Stopping old container..."
+            docker stop af-provisioning-service 2>/dev/null || true
+            docker rm af-provisioning-service 2>/dev/null || true
+            
+            echo "[*] Starting new container..."
+            docker run -d \
+              --name af-provisioning-service \
+              --restart unless-stopped \
+              -p ${{ env.DEPLOY_PORT }}:4500 \
+              -e NODE_ENV=production \
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            
+            echo "[*] Waiting for service to be healthy..."
+            sleep 5
+            
+            for i in {1..30}; do
+              if curl -sf http://localhost:${{ env.DEPLOY_PORT }}/health > /dev/null; then
+                echo "[✓] Service is healthy"
+                exit 0
+              fi
+              echo "[*] Attempt $i/30 - waiting..."
+              sleep 2
+            done
+            
+            echo "[✗] Service failed to become healthy"
+            docker logs af-provisioning-service
+            exit 1
+
+      - name: Verify deployment
+        run: |
+          echo "Verifying service is live..."
+          curl -s http://${{ env.DEPLOY_HOST }}:${{ env.DEPLOY_PORT }}/health -w "\nHTTP Status: %{http_code}\n"
