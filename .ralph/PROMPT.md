@@ -1,92 +1,35 @@
-# Task: af-portal Provisioning Service
+# Task: af-provisioning-service — Docker build + GHA deploy workflow
 
 ## Repo
-~/Projects/af-provisioning-service
+~/Projects/af-provisioning-service (diffen77/af-provisioning-service)
 
 ## Vad ska byggas
-Node.js/Express-server som tar emot webhook-events från MFE-host när kund köper ÅF-portal-prenumeration. Service:
-1. Spinnar upp Docker-container per kund (isolation)
-2. Sätter upp unik PostgreSQL-databas
-3. Registrerar domän i Caddy + auto-TLS
-4. Pollar DNS tills A-record är OK
-5. Returnerar bekräftelse när allt är live
+Provisioning-servicen är kodkomplett (Phase 12), men CI/CD-pipelinen fattas:
+1. Docker image måste byggas + pushad till ghcr.io/diffen77/af-provisioning-service
+2. GHA workflow måste deploy:a på 192.168.99.4:4500
+3. Verifiera: Service är uppe och responding
 
 ## Filer att ändra/skapa
-- `package.json` — Express, docker SDK, dotenv, axios
-- `src/main.ts` — Express server, middleware
-- `src/routes/provision.ts` — POST /provision endpoint
-- `src/routes/status.ts` — GET /status/:customerId endpoint
-- `src/services/containerService.ts` — docker-compose gen + docker-compose up
-- `src/services/caddyService.ts` — Caddy Admin API calls
-- `src/services/dnsService.ts` — DNS polling (max 24h, varje 5 min)
-- `src/services/dbService.ts` — PostgreSQL provisioning
-- `Dockerfile` — Node.js image, port 4500
-- `docker-compose.example.yml` — produktion på 192.168.99.4
-- `.env.example` — DOCKER_HOST, CADDY_ADMIN_URL, DATABASE_ADMIN_URL, GITHUB_TOKEN
-- `tests/provision.test.ts` — Test POST /provision end-to-end
+- .github/workflows/deploy-provisioning.yml (ny) — CI+CD pipeline
+- Dockerfile (redan OK, bara verifiera syntax)
+- docker-compose.yml (redan OK för lokal dev)
 
 ## Acceptance Criteria
-1. POST /provision accepterar { customer_id, domain, company_name, contact_email }
-2. Returnerar 202 Accepted + request ID direkt
-3. Container (af-<customer_id>) är uppe inom 60 sekunder
-4. Caddy-route skapas + TLS cert auto-genereras
-5. PostgreSQL-databas isolerad per kund (unikt schema/DB)
-6. GET /status/<customer_id> returnerar:
-   - `{ status: "provisioning", eta: "..."}` under setup
-   - `{ status: "provisioned", url: "https://<domain>", deployed_at: "..." }` när klart
-   - `{ status: "dns_waiting", last_check: "..." }` under DNS-poll
-7. DNS-polling: max 24h, check varje 5 min, geeft up med status=dns_timeout
-8. Varje provision-request loggas (customer_id, domain, timestamp)
-9. docker ps visar alla containers korrekt
-10. Unit tests för provision-logik + integration test för full flow
+1. GHA push to main bygger Docker image
+2. Image pushad till ghcr.io/diffen77/af-provisioning-service:latest
+3. Deploy-workflow skript SSH:ar till 192.168.99.4 och startar container
+4. curl -s http://192.168.99.4:4500/health returnerar {"status":"ok"}
+5. curl -X POST http://192.168.99.4:4500/provision med test-payload returnerar 202 Accepted
+6. Servicen stannar/startar utan crash-loopar
+7. git push, CI grön, service live
 
-## Test-kommando
-```bash
-npm test
-```
+## Test-kommando (lokal)
+docker build -t af-provisioning-service .
+docker run --rm -p 4500:3000 af-provisioning-service
+curl -s http://localhost:4500/health
 
 ## Build-kommando
-```bash
-npm run build
-```
+npm run build && npm test
 
-## Dev-starta
-```bash
-npm run dev
-```
-
-## Lokalt test av provision-endpoint
-```bash
-# Start server
-npm run dev
-
-# I annan terminal:
-curl -X POST http://localhost:4500/provision \
-  -H "Content-Type: application/json" \
-  -d '{
-    "customer_id": "test-001",
-    "domain": "test.minbutik.se",
-    "company_name": "Test Company",
-    "contact_email": "test@minbutik.se"
-  }'
-
-# Förväntat svar:
-# { "status": 202, "request_id": "uuid", "message": "Provisioning started" }
-
-# Checka status:
-curl http://localhost:4500/status/test-001
-```
-
-## Infrastruktur-förutsättningar (redan OK)
-- 192.168.99.4: Docker, docker-compose, Caddy
-- Caddy Admin API: localhost:2019 (på 192.168.99.4)
-- PostgreSQL: 5432, admin creds i .env
-
-## Deploys
-Dev: localhost:4500
-Prod: 192.168.99.4:4500 (docker-compose på host)
-
-## Antaganden
-- Caddy redan konfigurerad för dynamic routes
-- PostgreSQL redan uppe på 192.168.99.4
-- Docker daemon tillgängligt från service (via Docker socket el. remote)
+## Deploy-skript (på 192.168.99.4)
+ssh diffen@192.168.99.4 "docker pull ghcr.io/diffen77/af-provisioning-service:latest && docker stop af-provisioning-service 2>/dev/null; docker run -d --name af-provisioning-service --restart unless-stopped -p 4500:3000 ghcr.io/diffen77/af-provisioning-service:latest"
