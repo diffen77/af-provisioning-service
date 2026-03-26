@@ -1,35 +1,34 @@
-# Task: af-provisioning-service — Docker build + GHA deploy workflow
+# Task: INFRA Deploy af-provisioning-service CI/CD
 
 ## Repo
-~/Projects/af-provisioning-service (diffen77/af-provisioning-service)
+~/Projects/af-provisioning-service
 
 ## Vad ska byggas
-Provisioning-servicen är kodkomplett (Phase 12), men CI/CD-pipelinen fattas:
-1. Docker image måste byggas + pushad till ghcr.io/diffen77/af-provisioning-service
-2. GHA workflow måste deploy:a på 192.168.99.4:4500
-3. Verifiera: Service är uppe och responding
+Deploy CI/CD pipeline för af-provisioning-service:
+1. GitHub Actions workflow: Build Docker image → push to GHCR
+2. SSH-deploy to 192.168.99.4:4500 (docker compose up)
+3. Verify service responds on /health endpoint
 
 ## Filer att ändra/skapa
-- .github/workflows/deploy-provisioning.yml (ny) — CI+CD pipeline
-- Dockerfile (redan OK, bara verifiera syntax)
-- docker-compose.yml (redan OK för lokal dev)
+- .github/workflows/deploy-provisioning.yml (redan skapad, may need debugging)
+- .env på 192.168.99.4 (setup)
+- docker-compose.yml på deploy host (setup)
 
 ## Acceptance Criteria
-1. GHA push to main bygger Docker image
-2. Image pushad till ghcr.io/diffen77/af-provisioning-service:latest
-3. Deploy-workflow skript SSH:ar till 192.168.99.4 och startar container
-4. curl -s http://192.168.99.4:4500/health returnerar {"status":"ok"}
-5. curl -X POST http://192.168.99.4:4500/provision med test-payload returnerar 202 Accepted
-6. Servicen stannar/startar utan crash-loopar
-7. git push, CI grön, service live
+1. curl http://192.168.99.4:4500/health → HTTP 200 OK
+2. curl -X POST http://192.168.99.4:4500/provision -d '{}' → HTTP 202 (Accepted) or 400 (not connection refused)
+3. GHA run succeeds: "build-and-push" job green
+4. Container running: docker ps | grep af-provisioning-service
 
-## Test-kommando (lokal)
-docker build -t af-provisioning-service .
-docker run --rm -p 4500:3000 af-provisioning-service
-curl -s http://localhost:4500/health
+## Test-kommando
+curl http://192.168.99.4:4500/health
+curl -X POST http://192.168.99.4:4500/provision -d '{"customer_id":"test-1","domain":"test.example.com","company_name":"Test Co","contact_email":"test@example.com"}'
 
 ## Build-kommando
-npm run build && npm test
+docker build -t af-provisioning-service:latest .
+docker compose -f docker-compose.yml up -d
 
-## Deploy-skript (på 192.168.99.4)
-ssh diffen@192.168.99.4 "docker pull ghcr.io/diffen77/af-provisioning-service:latest && docker stop af-provisioning-service 2>/dev/null; docker run -d --name af-provisioning-service --restart unless-stopped -p 4500:3000 ghcr.io/diffen77/af-provisioning-service:latest"
+## Notes
+- Code complete as of 7e3a4e3 (ralph spec for CI/CD merged)
+- Workflow exists but deployment hasn't been triggered yet
+- May need to manually trigger GHA or debug deploy step if failing
