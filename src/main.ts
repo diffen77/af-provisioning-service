@@ -41,8 +41,11 @@ app.use((req: Request, res: Response) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-app.listen(PORT, () => {
-  logger.info(`af-provisioning-service listening on port ${PORT}`);
-});
+// Only listen if this module is run directly
+if (require.main === module) {
+  app.listen(PORT, () => {
+    logger.info(`af-provisioning-service listening on port ${PORT}`);
+  });
+}
 
 export default app;
